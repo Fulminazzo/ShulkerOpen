@@ -1,0 +1,10 @@
+name: ShulkerOpen
+version: '${project.version}'
+main: it.fulminazzo.shulkeropen.ShulkerOpen
+api-version: '1.13'
+authors: [Fulminazzo]
+description: A simple plugin to open a shulkerbox by right clicking on it in the air.
+
+permissions:
+  shulkeropen.open:
+    description: Permission to open a shulkerbox mid air.
