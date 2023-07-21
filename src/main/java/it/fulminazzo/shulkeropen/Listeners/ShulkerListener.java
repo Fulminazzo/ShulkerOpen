@@ -1,151 +1,84 @@
 package it.fulminazzo.shulkeropen.Listeners;
 
 import it.fulminazzo.shulkeropen.API.ShulkerBoxOpenEvent;
+import it.fulminazzo.shulkeropen.Interfaces.IShulkerPlayer;
+import it.fulminazzo.shulkeropen.Interfaces.IShulkerPlayersManager;
+import it.fulminazzo.shulkeropen.Interfaces.IShulkerPlugin;
 import org.bukkit.Bukkit;
-import org.bukkit.block.ShulkerBox;
 import org.bukkit.entity.Player;
-import org.bukkit.event.Cancellable;
 import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockPlaceEvent;
-import org.bukkit.event.inventory.*;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerSwapHandItemsEvent;
-import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.BlockStateMeta;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.*;
+import java.util.Optional;
 
 public class ShulkerListener implements Listener {
-    private final JavaPlugin plugin;
-    private final List<UUID> openShulkers;
-    private final HashMap<UUID, Date> recentClicks;
+    private final IShulkerPlugin plugin;
 
-    public ShulkerListener(JavaPlugin plugin) {
+    public ShulkerListener(IShulkerPlugin plugin) {
         this.plugin = plugin;
-        this.openShulkers = new ArrayList<>();
-        this.recentClicks = new HashMap<>();
     }
 
     @EventHandler
-    public void onPlayerClick(PlayerInteractEvent event) {
+    public void onPlayerInteract(PlayerInteractEvent event) {
         if (!event.getAction().equals(Action.RIGHT_CLICK_AIR)) return;
-        Player player = event.getPlayer();
-        getShulkerBox(player).ifPresent(shulkerBox -> {
-            Date recentClick = recentClicks.getOrDefault(player.getUniqueId(), null);
-            if (recentClick != null && (new Date().getTime() - recentClick.getTime()) / 1000 * 20 <= 10) return;
-            restorePlayer(player);
-            recentClicks.put(player.getUniqueId(), new Date());
-            ShulkerBoxOpenEvent shulkerBoxOpenEvent = new ShulkerBoxOpenEvent(player, shulkerBox);
+        getPlayer(event.getPlayer()).ifPresent(p -> {
+            ShulkerBoxOpenEvent shulkerBoxOpenEvent = new ShulkerBoxOpenEvent(p, p.getShulkerBox());
             Bukkit.getPluginManager().callEvent(shulkerBoxOpenEvent);
             if (shulkerBoxOpenEvent.isCancelled()) return;
-            this.openShulkers.add(player.getUniqueId());
-            player.openInventory(shulkerBox.getInventory());
+            p.openShulker();
         });
     }
 
     @EventHandler
     public void onPlayerClick(InventoryClickEvent event) {
-        Player player = (Player) event.getWhoClicked();
-        if (!this.openShulkers.contains(player.getUniqueId())) return;
-        saveInventory(player);
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> saveInventory(player));
-        if (event.getAction().equals(InventoryAction.HOTBAR_SWAP)) {
-            event.setCancelled(true);
-            return;
-        }
-        handleInventoryEvent(event, event.getCurrentItem(), event.getCursor());
-        for (Inventory inventory : Arrays.asList(player.getInventory(), event.getClickedInventory(), event.getInventory())) {
-            if (inventory == null) continue;
-            if (event.isCancelled()) return;
-            try {handleInventoryEvent(event, inventory.getItem(event.getSlot()));}
-            catch (IndexOutOfBoundsException ignored) {}
-            if (event.isCancelled()) return;
-            try {handleInventoryEvent(event, inventory.getItem(event.getRawSlot()));}
-            catch (IndexOutOfBoundsException ignored) {}
-        }
+        getPlayer((Player) event.getWhoClicked()).ifPresent(p -> {
+            if (!p.isShulkerOpen()) return;
+            ItemStack shulkerBox = p.getOpenShulkerBox();
+            if ((event.getCursor() != null && event.getCursor().equals(shulkerBox)) ||
+                    (event.getCurrentItem() != null && event.getCurrentItem().equals(shulkerBox)))
+                event.setCancelled(true);
+            p.saveInventory();
+        });
     }
 
     @EventHandler
     public void onPlayerClick(InventoryDragEvent event) {
-        Player player = (Player) event.getWhoClicked();
-        if (!this.openShulkers.contains(player.getUniqueId())) return;
-        saveInventory(player);
-        handleInventoryEvent(event, event.getOldCursor(), event.getCursor());
-    }
-
-    @EventHandler
-    public void onPlayerDrop(PlayerDropItemEvent event) {
-        ItemStack itemStack = event.getItemDrop().getItemStack();
-        Player player = event.getPlayer();
-        if (itemStack.getType().name().contains("SHULKER_BOX")) {
-            saveInventory(player);
-            player.closeInventory();
-        }
-    }
-
-    @EventHandler
-    public void onPlayerChangeSlot(PlayerSwapHandItemsEvent event) {
-        Player player = event.getPlayer();
-        if (this.openShulkers.contains(player.getUniqueId())) {
-            saveInventory(player);
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onInventoryClose(InventoryCloseEvent event) {
-        if (event.getInventory() == null || !event.getInventory().getType().equals(InventoryType.SHULKER_BOX)) return;
-        restorePlayer((Player) event.getPlayer());
+        getPlayer((Player) event.getWhoClicked()).ifPresent(p -> {
+            if (!p.isShulkerOpen()) return;
+            ItemStack shulkerBox = p.getOpenShulkerBox();
+            if (event.getCursor() != null && event.getCursor().equals(shulkerBox)) event.setCancelled(true);
+            p.saveInventory();
+        });
     }
 
     @EventHandler
     public void onPlayerPlace(BlockPlaceEvent event) {
-        Player player = event.getPlayer();
-        if (this.openShulkers.contains(player.getUniqueId())) {
-            saveInventory(player);
-            event.setCancelled(true);
-        }
-    }
-
-    private void handleInventoryEvent(Cancellable event, ItemStack... itemStacks) {
-        for (ItemStack itemStack : itemStacks) {
-            if (itemStack == null || !itemStack.getType().name().contains("SHULKER_BOX")) continue;
-            event.setCancelled(true);
-            return;
-        }
-    }
-
-    private void restorePlayer(Player player) {
-        UUID uuid = player.getUniqueId();
-        if (!openShulkers.contains(uuid)) return;
-        openShulkers.remove(uuid);
-        saveInventory(player);
-    }
-
-    private void saveInventory(Player player) {
-        Inventory inventory = player.getOpenInventory().getTopInventory();
-        if (inventory == null) return;
-        getShulkerBox(player).ifPresent(shulkerBox -> {
-            shulkerBox.getInventory().setContents(inventory.getContents());
-            ItemStack itemStack = player.getInventory().getItemInMainHand();
-            BlockStateMeta itemMeta = (BlockStateMeta) itemStack.getItemMeta();
-            itemMeta.setBlockState(shulkerBox);
-            itemStack.setItemMeta(itemMeta);
+        getPlayer(event.getPlayer()).ifPresent(p -> {
+            if (p.isShulkerOpen()) event.setCancelled(true);
         });
     }
 
-    private Optional<ShulkerBox> getShulkerBox(Player player) {
-        ItemStack itemStack = player.getInventory().getItemInMainHand();
-        if (itemStack == null || !itemStack.getType().name().contains("SHULKER_BOX")) return Optional.empty();
-        ItemMeta itemMeta = itemStack.getItemMeta();
-        if (!(itemMeta instanceof BlockStateMeta)) return Optional.empty();
-        return Optional.of((ShulkerBox) ((BlockStateMeta) itemMeta).getBlockState());
+    @EventHandler
+    public void onPlayerDrop(PlayerDropItemEvent event) {
+        getPlayer(event.getPlayer()).ifPresent(p -> {
+            if (p.isShulkerOpen()) event.setCancelled(true);
+        });
+    }
+
+    @EventHandler
+    public void onPlayerClose(InventoryCloseEvent event) {
+        getPlayer((Player) event.getPlayer()).ifPresent(IShulkerPlayer::closeShulker);
+    }
+
+    private Optional<IShulkerPlayer> getPlayer(Player player) {
+        return Optional.ofNullable(((IShulkerPlayersManager) plugin.getShulkerPlayersManager()).getPlayer(player.getUniqueId()));
     }
 }

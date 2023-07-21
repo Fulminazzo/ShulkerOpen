@@ -1,5 +1,6 @@
 package it.fulminazzo.shulkeropen.API;
 
+import it.fulminazzo.shulkeropen.Interfaces.IShulkerPlayer;
 import org.bukkit.block.ShulkerBox;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Cancellable;
@@ -8,17 +9,17 @@ import org.bukkit.event.HandlerList;
 
 public class ShulkerBoxOpenEvent extends Event implements Cancellable {
     private static final HandlerList handlerList = new HandlerList();
-    private final Player player;
+    private final IShulkerPlayer player;
     private final ShulkerBox shulkerBox;
     private boolean cancelled;
 
-    public ShulkerBoxOpenEvent(Player player, ShulkerBox shulkerBox) {
+    public ShulkerBoxOpenEvent(IShulkerPlayer player, ShulkerBox shulkerBox) {
         this.player = player;
         this.shulkerBox = shulkerBox;
         this.cancelled = false;
     }
 
-    public Player getPlayer() {
+    public IShulkerPlayer getPlayer() {
         return player;
     }
 
